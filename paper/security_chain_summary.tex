@@ -1,0 +1,96 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{enumitem}
+
+\title{A Practical 20-Minute Security Baseline Chain for Node.js Services}
+\author{Security Claw Project}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This document summarizes a practical security analysis workflow designed for Node.js services such as OpenClaw and NanoClaw. The workflow prioritizes common, widely adopted tools and enforces a strict 20-minute execution budget. We describe the chain design, implementation hardening decisions, and measured outcomes from local experiments.
+\end{abstract}
+
+\section{Problem Statement}
+Many teams need a reproducible baseline security check that is fast enough to run in pull requests and frequent CI jobs. Our objective is to build a minimal but effective scan chain that can:
+\begin{itemize}[leftmargin=1.5em]
+  \item detect dependency vulnerabilities,
+  \item detect risky code patterns,
+  \item detect container and repository misconfigurations,
+  \item complete within 1200 seconds.
+\end{itemize}
+
+\section{Security Chain Design}
+The baseline chain consists of three sequential stages:
+\begin{enumerate}[leftmargin=1.5em]
+  \item \textbf{Dependency scan}: \texttt{npm audit --audit-level=high --json}
+  \item \textbf{SAST scan}: \texttt{semgrep scan --config p/default --json}
+  \item \textbf{Container and misconfiguration scan}: \texttt{trivy fs --scanners vuln,misconfig --severity HIGH,CRITICAL --format json}
+\end{enumerate}
+
+To support reuse across similar services, stage commands are configured through service profiles (JSON) and executed by a shared engine script.
+
+\section{Implementation and Hardening}
+The framework includes:
+\begin{itemize}[leftmargin=1.5em]
+  \item service profiles under \texttt{services/*.json},
+  \item execution scripts under \texttt{engine/},
+  \item CI workflows under \texttt{.github/workflows/}.
+\end{itemize}
+
+Key hardening decisions:
+\begin{itemize}[leftmargin=1.5em]
+  \item replace string-based shell execution with structured \texttt{command + args} invocation,
+  \item avoid direct unsafe interpolation in workflow \texttt{run} blocks,
+  \item preserve before/after comparison for patch validation through summary diffs.
+\end{itemize}
+
+\section{Experimental Setup}
+\textbf{Target}: NanoClaw local repository.\\
+\textbf{Budget}: 1200 seconds.\\
+\textbf{Outputs}: JSON reports and summarized metrics.
+
+\section{Measured Results}
+Two representative runs were recorded:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lcccc}
+\toprule
+Run Label & Elapsed (s) & npm audit (High/Critical) & Semgrep Findings & Trivy High/Critical \\
+\midrule
+exp2 & 7 & 0 / 0 & 49 & 3 \\
+local\_framework\_test & 21 & 0 / 0 & 54 & 3 (+1 misconfig) \\
+\bottomrule
+\end{tabular}
+\caption{Observed baseline chain outcomes under the 20-minute budget.}
+\end{table}
+
+All observed runs completed far below the 1200-second limit.
+
+\section{Patch Validation Flow}
+For vulnerability remediation, the process includes:
+\begin{enumerate}[leftmargin=1.5em]
+  \item baseline scan and summary snapshot,
+  \item patch application,
+  \item re-scan with the same chain,
+  \item summary diff and policy gate check.
+\end{enumerate}
+
+A patch is considered successful when targeted findings disappear in the after-state and no new High/Critical issues are introduced.
+
+\section{Limitations}
+\begin{itemize}[leftmargin=1.5em]
+  \item Semgrep findings include both true positives and rule-noise; triage is required.
+  \item Vulnerability presence in dependencies may require upstream package updates, not only local code changes.
+  \item Results can vary with tool database update time.
+\end{itemize}
+
+\section{Conclusion}
+This work demonstrates that a minimal, reusable, and hardened security chain can provide meaningful baseline coverage for Node.js services within strict CI time constraints. The approach is practical for continuous monitoring and can be extended with service-specific policy gates and patch regression checks.
+
+\end{document}
