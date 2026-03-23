@@ -3,6 +3,28 @@
 \usepackage{booktabs}
 \usepackage{hyperref}
 \usepackage{enumitem}
+\usepackage{tikz}
+\usepackage{float}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, fit, backgrounds, calc}
+
+% --- TikZ common styles ---
+\tikzset{
+  stageblock/.style={rectangle, rounded corners=5pt, draw=black!70, fill=blue!12,
+    text width=5.5em, minimum height=2.4em, align=center, font=\small\bfseries},
+  reportblock/.style={rectangle, rounded corners=3pt, draw=black!50, fill=yellow!18,
+    text width=5em, minimum height=2em, align=center, font=\small},
+  gateblock/.style={diamond, aspect=2.2, draw=black!70, fill=orange!22,
+    text width=4.5em, minimum height=2em, align=center, font=\small},
+  svcblock/.style={rectangle, rounded corners=4pt, draw=teal!70, fill=teal!10,
+    text width=5em, minimum height=2.2em, align=center, font=\small},
+  engblock/.style={rectangle, rounded corners=4pt, draw=purple!70, fill=purple!10,
+    text width=6.5em, minimum height=2.2em, align=center, font=\small},
+  termblock/.style={rectangle, rounded corners=10pt, draw=gray!70, fill=gray!15,
+    text width=5em, minimum height=2em, align=center, font=\small},
+  arrow/.style={-{Stealth[length=5pt]}, thick},
+  dasharrow/.style={-{Stealth[length=4pt]}, thick, dashed, gray!70},
+  groupbox/.style={draw=gray!50, dashed, rounded corners=6pt, fill=gray!5, inner sep=8pt}
+}
 
 \title{A Practical 20-Minute Security Baseline Chain for Node.js Services}
 \author{Security Claw Project}
@@ -34,6 +56,43 @@ The baseline chain consists of three sequential stages:
 
 To support reuse across similar services, stage commands are configured through service profiles (JSON) and executed by a shared engine script.
 
+Figure~\ref{fig:pipeline} illustrates the sequential execution flow of the three-stage chain.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+  node distance=1.1cm and 1.4cm
+]
+  % Stage nodes
+  \node[termblock] (start) {Start};
+  \node[stageblock, right=of start] (dep) {Stage 1\\npm audit};
+  \node[stageblock, right=of dep]   (sast) {Stage 2\\Semgrep};
+  \node[stageblock, right=of sast]  (cont) {Stage 3\\Trivy};
+  \node[termblock,  right=of cont]  (done) {Summary\\JSON};
+
+  % Report nodes below each stage
+  \node[reportblock, below=0.8cm of dep]  (r1) {npm-audit\\*.json};
+  \node[reportblock, below=0.8cm of sast] (r2) {semgrep\\*.json};
+  \node[reportblock, below=0.8cm of cont] (r3) {trivy\\*.json};
+
+  % Main flow arrows
+  \draw[arrow] (start) -- (dep);
+  \draw[arrow] (dep)   -- (sast);
+  \draw[arrow] (sast)  -- (cont);
+  \draw[arrow] (cont)  -- (done);
+
+  % Report dashed arrows
+  \draw[dasharrow] (dep)  -- (r1);
+  \draw[dasharrow] (sast) -- (r2);
+  \draw[dasharrow] (cont) -- (r3);
+
+  % Budget label
+  \node[above=0.5cm of sast, font=\small\itshape, gray] {Budget: 1200 s};
+\end{tikzpicture}
+\caption{Three-stage baseline security scan chain.}
+\label{fig:pipeline}
+\end{figure}
+
 \section{Implementation and Hardening}
 The framework includes:
 \begin{itemize}[leftmargin=1.5em]
@@ -41,6 +100,54 @@ The framework includes:
   \item execution scripts under \texttt{engine/},
   \item CI workflows under \texttt{.github/workflows/}.
 \end{itemize}
+
+Figure~\ref{fig:arch} shows how the shared engine layer decouples service-specific configuration from scan execution.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+  node distance=0.9cm and 1.2cm
+]
+  % Service profile column
+  \node[svcblock] (nc) {NanoClaw\\profile};
+  \node[svcblock, below=0.7cm of nc] (oc) {OpenClaw\\profile};
+  \node[svcblock, below=0.7cm of oc] (cx) {Custom\\profile};
+
+  % Engine
+  \node[engblock, right=1.8cm of oc] (eng) {Engine\\run-chain.sh};
+
+  % Output reports
+  \node[reportblock, right=1.8cm of eng, yshift=1.1cm]  (rn) {npm audit\\report};
+  \node[reportblock, right=1.8cm of eng]                (rs) {Semgrep\\report};
+  \node[reportblock, right=1.8cm of eng, yshift=-1.1cm] (rt) {Trivy\\report};
+
+  % Policy gate
+  \node[gateblock, right=1.5cm of rs] (gate) {Policy\\Gate};
+
+  % Arrows: profiles to engine
+  \draw[arrow] (nc) -- (eng);
+  \draw[arrow] (oc) -- (eng);
+  \draw[arrow] (cx) -- (eng);
+
+  % Arrows: engine to reports
+  \draw[arrow] (eng) -- (rn);
+  \draw[arrow] (eng) -- (rs);
+  \draw[arrow] (eng) -- (rt);
+
+  % Arrows: reports to gate
+  \draw[arrow] (rn) -- (gate);
+  \draw[arrow] (rs) -- (gate);
+  \draw[arrow] (rt) -- (gate);
+
+  % Group boxes
+  \begin{scope}[on background layer]
+    \node[groupbox, fit=(nc)(oc)(cx), label=above:{\small Service Profiles}] {};
+    \node[groupbox, fit=(rn)(rs)(rt), label=above:{\small Reports}] {};
+  \end{scope}
+\end{tikzpicture}
+\caption{Multi-service framework architecture: service profiles → engine → reports → policy gate.}
+\label{fig:arch}
+\end{figure}
 
 Key hardening decisions:
 \begin{itemize}[leftmargin=1.5em]
@@ -82,6 +189,49 @@ For vulnerability remediation, the process includes:
 \end{enumerate}
 
 A patch is considered successful when targeted findings disappear in the after-state and no new High/Critical issues are introduced.
+
+Figure~\ref{fig:patchflow} shows the before/after comparison workflow.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+  node distance=0.85cm and 1.3cm
+]
+  % Before column
+  \node[stageblock] (scan1) {Baseline\\Scan};
+  \node[reportblock, below=of scan1] (sum1) {before/\\summary.json};
+
+  % Patch
+  \node[engblock, right=1.6cm of scan1] (patch) {Apply\\Patch};
+
+  % After column
+  \node[stageblock, right=1.6cm of patch] (scan2) {Re-run\\Scan};
+  \node[reportblock, below=of scan2] (sum2) {after/\\summary.json};
+
+  % Diff
+  \node[engblock, below=1.4cm of patch] (diff) {compare-\\before-after.sh};
+
+  % Gate
+  \node[gateblock, below=of diff] (gate) {Policy\\Gate};
+
+  % Pass/Fail
+  \node[termblock, right=1.3cm of gate] (pass) {\textcolor{green!60!black}{PASS}};
+  \node[termblock, left=1.3cm of gate]  (fail) {\textcolor{red!70!black}{FAIL}};
+
+  % Arrows
+  \draw[arrow] (scan1) -- (sum1);
+  \draw[arrow] (scan1) -- (patch);
+  \draw[arrow] (patch) -- (scan2);
+  \draw[arrow] (scan2) -- (sum2);
+  \draw[arrow] (sum1)  -- (diff);
+  \draw[arrow] (sum2)  -- (diff);
+  \draw[arrow] (diff)  -- (gate);
+  \draw[arrow] (gate)  -- node[above, font=\tiny]{no new H/C} (pass);
+  \draw[arrow] (gate)  -- node[above, font=\tiny]{regression} (fail);
+\end{tikzpicture}
+\caption{Patch validation flow: before/after scan comparison and policy gate.}
+\label{fig:patchflow}
+\end{figure}
 
 \section{Limitations}
 \begin{itemize}[leftmargin=1.5em]
