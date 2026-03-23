@@ -1,0 +1,37 @@
+name: security-weekly
+
+on:
+  schedule:
+    - cron: "0 2 * * 1"
+  workflow_dispatch:
+
+jobs:
+  weekly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      REPORT_LABEL: weekly_${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install tools
+        run: |
+          npm i -g semgrep
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run weekly chain
+        run: |
+          bash engine/run-chain.sh services/nanoclaw.json "$REPORT_LABEL"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-security-report
+          path: reports/${{ env.REPORT_LABEL }}

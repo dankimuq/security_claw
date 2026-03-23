@@ -1,0 +1,48 @@
+name: security-baseline
+
+on:
+  workflow_dispatch:
+    inputs:
+      service:
+        description: Service profile name (without .json)
+        required: true
+        default: nanoclaw
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SERVICE_NAME: ${{ github.event.inputs.service || 'nanoclaw' }}
+      REPORT_LABEL: baseline_${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install tools
+        run: |
+          npm i -g semgrep
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run baseline chain
+        run: |
+          bash engine/run-chain.sh "services/${SERVICE_NAME}.json" "$REPORT_LABEL"
+
+      - name: Policy gate
+        run: |
+          node engine/policy-gate.js "reports/${REPORT_LABEL}/summary.json"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: baseline-security-report
+          path: reports/${{ env.REPORT_LABEL }}

@@ -1,0 +1,69 @@
+name: security-patch-validate
+
+on:
+  workflow_dispatch:
+    inputs:
+      service:
+        description: Service profile name (without .json)
+        required: true
+        default: nanoclaw
+      patch_script:
+        description: Relative path to a patch script under patches/
+        required: true
+        default: patches/apply-patch.example.sh
+
+jobs:
+  patch-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SERVICE_NAME: ${{ github.event.inputs.service }}
+      PATCH_SCRIPT: ${{ github.event.inputs.patch_script }}
+      BEFORE_LABEL: before_${{ github.run_id }}
+      AFTER_LABEL: after_${{ github.run_id }}
+      DIFF_PATH: reports/diff_${{ github.run_id }}.json
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install tools
+        run: |
+          npm i -g semgrep
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run before snapshot
+        run: |
+          bash engine/run-chain.sh "services/${SERVICE_NAME}.json" "$BEFORE_LABEL"
+
+      - name: Apply patch
+        run: |
+          case "$PATCH_SCRIPT" in
+            patches/*) ;;
+            *) echo "PATCH_SCRIPT must stay under patches/" >&2; exit 2 ;;
+          esac
+          test -f "$PATCH_SCRIPT"
+          bash "$PATCH_SCRIPT"
+
+      - name: Run after snapshot
+        run: |
+          bash engine/run-chain.sh "services/${SERVICE_NAME}.json" "$AFTER_LABEL"
+
+      - name: Compare and gate
+        run: |
+          bash engine/compare-before-after.sh "reports/${BEFORE_LABEL}/summary.json" "reports/${AFTER_LABEL}/summary.json" > "$DIFF_PATH"
+          node engine/policy-gate.js "$DIFF_PATH"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: patch-validate-report
+          path: |
+            reports/${{ env.BEFORE_LABEL }}
+            reports/${{ env.AFTER_LABEL }}
+            ${{ env.DIFF_PATH }}

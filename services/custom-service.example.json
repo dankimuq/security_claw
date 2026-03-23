@@ -1,0 +1,17 @@
+{
+  "service_name": "custom-service",
+  "repo_path": ".",
+  "dependency_scan": {
+    "command": "npm",
+    "args": ["audit", "--audit-level=high", "--json"]
+  },
+  "sast_scan": {
+    "command": "semgrep",
+    "args": ["scan", "--config", "p/default", "--json"]
+  },
+  "container_scan": {
+    "command": "trivy",
+    "args": ["fs", "--scanners", "vuln,misconfig", "--severity", "HIGH,CRITICAL", "--format", "json", "--no-progress", "."]
+  },
+  "time_budget_sec": 1200
+}
